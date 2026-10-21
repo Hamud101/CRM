@@ -279,4 +279,44 @@ function migrate_steps(PDO $pdo): void {
         $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','11')");
         $cur = 11;
     }
+
+    if ($cur < 12) {
+        /* Lead search: saved Outreach searches and the runs that read Google
+           Maps through the scraper. Run rows keep the outcome so the tab has a
+           history without asking the scraper again. */
+        $pdo->exec("CREATE TABLE outreach_searches (
+            id            TEXT PRIMARY KEY,
+            name          TEXT NOT NULL,
+            keywords      TEXT NOT NULL DEFAULT '',
+            places        TEXT NOT NULL DEFAULT '',
+            industry      TEXT NOT NULL DEFAULT '',
+            depth         INTEGER NOT NULL DEFAULT 2,
+            lang          TEXT NOT NULL DEFAULT 'en',
+            emails        INTEGER NOT NULL DEFAULT 0,
+            min_reviews   INTEGER NOT NULL DEFAULT 0,
+            max_reviews   INTEGER NOT NULL DEFAULT 0,
+            require_phone INTEGER NOT NULL DEFAULT 1,
+            no_site_only  INTEGER NOT NULL DEFAULT 0,
+            daily         INTEGER NOT NULL DEFAULT 0,
+            created_at    INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL
+        )");
+        $pdo->exec("CREATE TABLE outreach_runs (
+            id          TEXT PRIMARY KEY,
+            search_id   TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'queued',
+            job_id      TEXT NOT NULL DEFAULT '',
+            queries     INTEGER NOT NULL DEFAULT 0,
+            found       INTEGER NOT NULL DEFAULT 0,
+            imported    INTEGER NOT NULL DEFAULT 0,
+            skipped     INTEGER NOT NULL DEFAULT 0,
+            note        TEXT NOT NULL DEFAULT '',
+            created_at  INTEGER NOT NULL,
+            started_at  INTEGER NOT NULL DEFAULT 0,
+            finished_at INTEGER NOT NULL DEFAULT 0
+        )");
+        $pdo->exec("CREATE INDEX idx_runs_status ON outreach_runs(status, created_at)");
+        $pdo->exec("INSERT OR REPLACE INTO schema_meta (k,v) VALUES ('version','12')");
+        $cur = 12;
+    }
 }

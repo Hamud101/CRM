@@ -75,5 +75,6 @@ return [
         'week_plan'   => true,  // "This week vs the plan" panel
         'stop_loss'   => true,  // 6 touches, 3 weeks, no reply sweep
         'win_followups' => false, // baseline, first report and review reminders after a win
+        'outreach'    => true,  // Outreach tab: find leads on Google Maps
     ],
 ];

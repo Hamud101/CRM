@@ -14,4 +14,11 @@ fi
 chown -R www-data:www-data "$CRM_DATA_DIR"
 chmod 700 "$CRM_DATA_DIR"
 
+# The Outreach job folder is shared with the scraper, which runs as root; the
+# CRM writes jobs into it as www-data.
+if [ -n "${CRM_OUTREACH_DIR:-}" ]; then
+    mkdir -p "$CRM_OUTREACH_DIR/jobs"
+    chown www-data:www-data "$CRM_OUTREACH_DIR/jobs"
+fi
+
 exec "$@"

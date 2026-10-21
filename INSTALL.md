@@ -4,6 +4,10 @@ A sales CRM for one person or a small team: leads, a call queue, follow-ups,
 email from the CRM, Google Calendar, and quotes. One codebase runs any business;
 everything specific to yours lives in a settings file you edit.
 
+The install also includes the Google Maps search behind the Outreach tab.
+Searches run in the background and the new businesses land in Leads. Businesses
+already in your CRM are skipped.
+
 There are two ways to install it:
 
 - **On your own computer with Docker (recommended).** About 5 minutes and one
@@ -183,6 +187,12 @@ If you use Google Calendar or Trello, add a cron job in your host's panel:
 ```
 */10 * * * * php /full/path/to/crm/sync.php
 ```
+
+### Lead search
+
+The Outreach tab's search needs the scraper, which runs in Docker. Shared web
+hosting cannot run Docker, so on a web host the Outreach tab can save searches
+but not run them. For search, use the install on your own computer.
 
 ## Updating
 

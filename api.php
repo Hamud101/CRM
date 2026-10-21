@@ -6,6 +6,7 @@ require_once __DIR__ . '/lib/templates.php';
 require_once __DIR__ . '/lib/documents.php';
 require_once __DIR__ . '/lib/proposal.php';
 require_once __DIR__ . '/lib/trello.php';
+require_once __DIR__ . '/lib/outreach.php';
 require_auth();
 
 $a = $_GET['a'] ?? '';
@@ -175,6 +176,19 @@ function log_act(PDO $pdo, string $leadId, string $type, string $body): void {
     if ((string)$last->fetchColumn() === $body) return;
     $pdo->prepare("INSERT INTO activities (lead_id,ts,type,body) VALUES (?,?,?,?)")
         ->execute([$leadId, time(), $type, $body]);
+}
+
+/* Keywords and places arrive as free text. Store one clean line each, capped,
+ * so a saved search is exactly what the scraper will be asked for. */
+function outreach_field_lines(string $text): string {
+    $out = [];
+    foreach (preg_split('~\r\n|\r|\n~', $text) as $line) {
+        $line = trim($line);
+        if ($line === '') continue;
+        $out[] = substr($line, 0, 120);
+        if (count($out) >= 50) break;
+    }
+    return implode("\n", $out);
 }
 
 switch ($a) {
@@ -1247,6 +1261,92 @@ case 'move_to_nurture': {
         $moved++;
     }
     json_out(['ok' => true, 'moved' => $moved]);
+}
+
+case 'outreach': {
+    json_out(outreach_state($pdo));
+}
+
+case 'save_search': {
+    $id = trim((string)($in['id'] ?? ''));
+    $name = trim((string)($in['name'] ?? ''));
+    if ($name === '') json_out(['error' => 'Give the search a name.'], 400);
+    $keywords = outreach_field_lines((string)($in['keywords'] ?? ''));
+    if ($keywords === '') json_out(['error' => 'Add at least one thing to search for.'], 400);
+    $places = outreach_field_lines((string)($in['places'] ?? ''));
+
+    $depth = max(1, min(10, (int)($in['depth'] ?? 2)));
+    $lang  = strtolower(trim((string)($in['lang'] ?? 'en')));
+    if (!preg_match('~^[a-z]{2}$~', $lang)) $lang = 'en';
+    $min = max(0, min(100000, (int)($in['min_reviews'] ?? 0)));
+    $max = max(0, min(100000, (int)($in['max_reviews'] ?? 0)));
+    $emails   = !empty($in['emails']) ? 1 : 0;
+    $phone    = !empty($in['require_phone']) ? 1 : 0;
+    $nosite   = !empty($in['no_site_only']) ? 1 : 0;
+    $daily    = !empty($in['daily']) ? 1 : 0;
+    $industry = industry_key((string)($in['industry'] ?? ''));
+
+    if ($id !== '') {
+        $exists = $pdo->prepare("SELECT 1 FROM outreach_searches WHERE id=?");
+        $exists->execute([$id]);
+        if (!$exists->fetchColumn()) json_out(['error' => 'No such search'], 404);
+        $pdo->prepare("UPDATE outreach_searches SET name=?, keywords=?, places=?, industry=?,
+            depth=?, lang=?, emails=?, min_reviews=?, max_reviews=?, require_phone=?,
+            no_site_only=?, daily=?, updated_at=? WHERE id=?")
+            ->execute([$name, $keywords, $places, $industry, $depth, $lang, $emails, $min, $max,
+                       $phone, $nosite, $daily, $now, $id]);
+    } else {
+        $id = 's_' . substr(bin2hex(random_bytes(6)), 0, 8);
+        $pdo->prepare("INSERT INTO outreach_searches
+            (id,name,keywords,places,industry,depth,lang,emails,min_reviews,max_reviews,
+             require_phone,no_site_only,daily,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+            ->execute([$id, $name, $keywords, $places, $industry, $depth, $lang, $emails, $min,
+                       $max, $phone, $nosite, $daily, $now, $now]);
+    }
+    json_out(['ok' => true, 'id' => $id]);
+}
+
+case 'delete_search': {
+    $id = trim((string)($in['id'] ?? ''));
+    // Finished runs stay for history; only the ones that never ran go. A run
+    // in flight is dropped at the scraper too, or it would keep searching.
+    $live = $pdo->prepare("SELECT * FROM outreach_runs WHERE search_id=? AND status='running'");
+    $live->execute([$id]);
+    foreach ($live->fetchAll() as $run) outreach_job_cancel($run);
+    $pdo->prepare("DELETE FROM outreach_runs WHERE search_id=? AND status IN ('queued','running')")->execute([$id]);
+    $pdo->prepare("DELETE FROM outreach_searches WHERE id=?")->execute([$id]);
+    json_out(['ok' => true]);
+}
+
+case 'run_search': {
+    $id = trim((string)($in['id'] ?? ''));
+    $exists = $pdo->prepare("SELECT 1 FROM outreach_searches WHERE id=?");
+    $exists->execute([$id]);
+    if (!$exists->fetchColumn()) json_out(['error' => 'No such search'], 404);
+    $runId = outreach_queue($pdo, $id, 'run now');
+    if ($runId === null) json_out(['error' => 'This search is already running.'], 409);
+    json_out(['ok' => true, 'run' => $runId]);
+}
+
+case 'cancel_run': {
+    $id = trim((string)($in['id'] ?? ''));
+    $r = $pdo->prepare("SELECT * FROM outreach_runs WHERE id=?");
+    $r->execute([$id]);
+    $run = $r->fetch();
+    if (!$run) json_out(['error' => 'No such run'], 404);
+    if ($run['status'] === 'queued') {
+        $pdo->prepare("UPDATE outreach_runs SET status='cancelled', finished_at=? WHERE id=?")
+            ->execute([$now, $id]);
+    } elseif ($run['status'] === 'running') {
+        // Tell the scraper to drop the job; its result is no longer wanted.
+        outreach_job_cancel($run);
+        $pdo->prepare("UPDATE outreach_runs SET status='cancelled', finished_at=? WHERE id=?")
+            ->execute([$now, $id]);
+    } else {
+        json_out(['error' => 'This run has already finished.'], 409);
+    }
+    json_out(['ok' => true]);
 }
 
 case 'search': {

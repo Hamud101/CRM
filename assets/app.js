@@ -21,6 +21,7 @@
     clients:'<svg viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.7-7 4v3h14v-3c0-2.3-3.7-4-7-4zm8.5-2a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm.5 2c-.9 0-1.9.2-2.7.5 1.4.9 2.2 2.1 2.2 3.5v3h5v-3c0-2.1-2.6-4-4.5-4z"/></svg>',
     /* A funnel: the pipeline, narrowing. Reads as "not clients yet". */
     leads:'<svg viewBox="0 0 24 24"><path d="M2.4 3.5A1 1 0 0 1 3.3 3h17.4a1 1 0 0 1 .78 1.63L14.5 13.2V20a1 1 0 0 1-1.45.9l-3-1.5a1 1 0 0 1-.55-.9v-5.3L2.52 4.63a1 1 0 0 1-.12-1.13z"/></svg>',
+    outreach:'<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>',
     gear:  '<svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8.5-2c0-.5 0-1-.1-1.4l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.4-1.4L15.2 2h-4l-.4 2.6c-.9.3-1.7.8-2.4 1.4l-2.4-1-2 3.4 2 1.6a8.6 8.6 0 0 0 0 2.8l-2 1.6 2 3.4 2.4-1c.7.6 1.5 1.1 2.4 1.4l.4 2.6h4l.4-2.6c.9-.3 1.7-.8 2.4-1.4l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.4z"/></svg>'
   };
 
@@ -34,7 +35,7 @@
     var v = p[0];
     if (v === 'call')   return { view: 'call', stage: p[1] || 'new', industry: p[2] || '' };
     if (v === 'lead' && p[1]) return { view: 'detail', id: p[1] };
-    if (['dash', 'cal', 'clients', 'leads'].indexOf(v) >= 0) return { view: v };
+    if (['dash', 'cal', 'clients', 'leads', 'outreach'].indexOf(v) >= 0) return { view: v };
     return null;
   }
   function writeHash() {
@@ -275,7 +276,9 @@
         (BIZ.logo
           ? '<img src="' + BASE + BIZ.logo + '" alt="' + esc(BIZ.name || '') + '"></a>'
           : '<span class="wordmark">' + esc((BIZ.name || 'CRM').charAt(0)) + '</span></a>') +
-      b('call', 'Call queue') + b('leads', 'Leads') + b('clients', 'Clients') + b('cal', 'Calendar') +
+      b('call', 'Call queue') + b('leads', 'Leads') +
+      (FEAT.outreach !== false ? b('outreach', 'Outreach') : '') +
+      b('clients', 'Clients') + b('cal', 'Calendar') +
       '<div class="spacer"></div>' +
       '<a class="rbtn ' + (S.boot.calendar_connected ? '' : 'alert') + '" href="' + BASE + 'oauth_google.php" ' +
         'title="' + (S.boot.calendar_connected ? 'Calendar connected' : 'Calendar NOT connected') + '">' +
@@ -290,7 +293,7 @@
   function head() {
     var pct = S.queue.length ? Math.round((S.i / S.queue.length) * 100) : 0;
     var titles = { dash:'Dashboard', call:'Call queue', cal:'Calendar',
-                   clients:'Clients', leads:'Leads' };
+                   clients:'Clients', leads:'Leads', outreach:'Outreach' };
     var ctx = '<b>' + (titles[S.view] || 'Dashboard') + '</b>';
     if (S.view === 'call' && S.queue.length) {
       ctx += ' <span class="dim">lead ' + Math.min(S.i + 1, S.queue.length) +
@@ -318,6 +321,9 @@
         : '') +
       (S.view === 'leads'
         ? '<button class="addpill" data-newlead="contacted">+ Add lead</button>'
+        : '') +
+      (S.view === 'outreach'
+        ? '<button class="addpill" data-osnew="1">+ New search</button>'
         : '') +
       /* Only on the Calendar view — it was noise everywhere else. */
       (S.view === 'cal'
@@ -1043,6 +1049,74 @@
       '<div class="cgrid">' + c.map(clientCard).join('') + '</div></div>';
   }
 
+  /* Outreach: saved Google Maps searches and the runs they produced. */
+  function runWords(r) {
+    if (r.status === 'queued')    return 'Waiting to start';
+    if (r.status === 'running')   return 'Searching now';
+    if (r.status === 'failed')    return 'Failed: ' + (r.note || '');
+    if (r.status === 'cancelled') return 'Stopped';
+    return 'Done';
+  }
+  function searchRow(s) {
+    function lines(t) {
+      return (t || '').split('\n').filter(function (x) { return x.trim() !== ''; }).length;
+    }
+    function n(k, one) { return k + ' ' + one + (k === 1 ? '' : 's'); }
+    var sub = n(lines(s.keywords), 'term') + ', ' + n(lines(s.places), 'place') +
+              (s.daily ? ' · every day' : '');
+    if (s.last_run) {
+      sub += ' · ' + (s.last_run.status === 'done'
+        ? 'Last run: added ' + s.last_run.imported + ', skipped ' + s.last_run.skipped
+        : runWords(s.last_run));
+    }
+    return '<div class="orow">' +
+      '<div class="grow"><b>' + esc(s.name) + '</b>' +
+        '<div class="dim">' + esc(sub) + '</div></div>' +
+      '<button data-orun="' + s.id + '">Run now</button>' +
+      '<button data-oedit="' + s.id + '">Edit</button>' +
+      '<button data-odel="' + s.id + '">Delete</button></div>';
+  }
+  function runRow(r) {
+    var sub = runWords(r);
+    if (r.status === 'done') {
+      sub += ' · found ' + r.found + ', added ' + r.imported + ', skipped ' + r.skipped;
+    } else if (r.note && r.status !== 'failed') {
+      sub += ' · ' + r.note;
+    }
+    return '<div class="orow">' +
+      '<div class="grow"><b>' + esc(r.search_name || 'Deleted search') + '</b>' +
+        '<div class="dim">' + esc(sub + ' · ' + when(r.created_at)) + '</div></div>' +
+      (r.status === 'queued' || r.status === 'running'
+        ? '<button data-ocancel="' + r.id + '">Stop</button>' : '') +
+      '</div>';
+  }
+  function viewOutreach() {
+    var o = S.outreach;
+    if (!o) return '<div class="panel"><div class="empty">Loading…</div></div>';
+    var status;
+    if (!o.configured) {
+      status = '<div class="ostatus off">Search needs the scraper, which comes with the ' +
+        'one-command install (see INSTALL.md). You can still save searches.</div>';
+    } else if (!o.up) {
+      status = '<div class="ostatus warn">The scraper is not answering yet. It can take a ' +
+        'minute after the computer starts. If it stays like this, run ' +
+        'docker compose up -d in the CRM folder.</div>';
+    } else {
+      status = '<div class="ostatus ok">Ready to search. Searches look up businesses on ' +
+        'Google Maps and add new ones to Leads. Businesses already in your CRM are skipped.</div>';
+    }
+    var searches = (o.searches || []).length
+      ? o.searches.map(searchRow).join('')
+      : '<div class="empty"><b>No searches yet</b>Make one with + New search. ' +
+        'For example: plumber, in Austin, TX.</div>';
+    var runs = (o.runs || []).length
+      ? o.runs.map(runRow).join('')
+      : '<div class="empty">Runs show up here.</div>';
+    return status +
+      '<div class="panel"><div class="phead"><b>Searches</b></div>' + searches + '</div>' +
+      '<div class="panel"><div class="phead"><b>Recent runs</b></div>' + runs + '</div>';
+  }
+
   /* Leads: everyone who has not signed. `tone` picks the badge colour from the
      status tokens already in the palette — warm for something slipping, blue
      for something in flight, grey for cold. */
@@ -1290,6 +1364,40 @@
         '<input id="nl-source" placeholder="Referral, inbound, event…">' +
         '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
         '<button class="go" data-newsave="1">Add</button></div></div></div>';
+    }
+    if (k === 'osearch') {
+      var s = S.sheet.s;
+      return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+        '<h3>' + (s.id ? 'Edit search' : 'New search') + '</h3>' +
+        '<div class="who">Businesses found are added to Leads. Ones already there are skipped.</div>' +
+        '<label>Name</label><input id="os-name" placeholder="Plumbers in Austin" value="' + esc(s.name || '') + '">' +
+        '<label>What to search for <span class="opt">one per line</span></label>' +
+        '<textarea id="os-kw" placeholder="plumber&#10;water heater repair">' + esc(s.keywords || '') + '</textarea>' +
+        '<label>Where <span class="opt">one city or area per line</span></label>' +
+        '<textarea id="os-places" placeholder="Austin, TX&#10;Round Rock, TX">' + esc(s.places || '') + '</textarea>' +
+        '<label>Put new leads in this industry</label>' +
+        '<select id="os-ind" class="nbfield">' + industryOptions(s.industry || 'other') + '</select>' +
+        '<label>How far down the results to go</label>' +
+        '<select id="os-depth" class="nbfield">' +
+          '<option value="1"' + (s.depth == 1 ? ' selected' : '') + '>Quick</option>' +
+          '<option value="2"' + (s.depth == 2 ? ' selected' : '') + '>Normal</option>' +
+          '<option value="5"' + (s.depth == 5 ? ' selected' : '') + '>Deep</option>' +
+          '<option value="10"' + (s.depth == 10 ? ' selected' : '') + '>Very deep (slow)</option>' +
+        '</select>' +
+        '<label>Fewest reviews</label>' +
+        '<input id="os-min" type="number" min="0" value="' + (s.min_reviews || 0) + '">' +
+        '<label>Most reviews <span class="opt">0 means no limit</span></label>' +
+        '<input id="os-max" type="number" min="0" value="' + (s.max_reviews || 0) + '">' +
+        '<label class="chk"><input type="checkbox" id="os-phone"' + (s.require_phone ? ' checked' : '') +
+          '> Only businesses with a phone number</label>' +
+        '<label class="chk"><input type="checkbox" id="os-nosite"' + (s.no_site_only ? ' checked' : '') +
+          '> Only businesses with no website listed on Google Maps</label>' +
+        '<label class="chk"><input type="checkbox" id="os-email"' + (s.emails ? ' checked' : '') +
+          '> Look for email addresses too (slower)</label>' +
+        '<label class="chk"><input type="checkbox" id="os-daily"' + (s.daily ? ' checked' : '') +
+          '> Run this search every day</label>' +
+        '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
+        '<button class="go" data-osave="1">Save</button></div></div></div>';
     }
     if (k === 'proposal') {
       var pl = S.sheet.lead, p = S.sheet.p;
@@ -1635,7 +1743,8 @@
            S.view === 'cal' ? viewCal() :
            S.view === 'detail' ? viewDetail() :
            S.view === 'leads' ? viewLeads() :
-           S.view === 'clients' ? viewClients() : viewDash()) +
+           S.view === 'clients' ? viewClients() :
+           S.view === 'outreach' ? viewOutreach() : viewDash()) +
         '</div></div>' +
       '</div>' + (S.sheet ? sheet() : '');
     wire();
@@ -2188,6 +2297,75 @@
       };
       render();
     });
+
+    document.querySelectorAll('[data-osnew]').forEach(function (el) {
+      el.onclick = function () {
+        S.sheet = { kind: 'osearch', s: { name: '', keywords: '', places: '', industry: 'other',
+          depth: 2, min_reviews: 0, max_reviews: 0, require_phone: 1, emails: 0,
+          no_site_only: 0, daily: 0 } };
+        render();
+      };
+    });
+    document.querySelectorAll('[data-oedit]').forEach(function (el) {
+      el.onclick = function () {
+        var s = (S.outreach.searches || []).filter(function (x) { return x.id === el.dataset.oedit; })[0];
+        if (s) { S.sheet = { kind: 'osearch', s: s }; render(); }
+      };
+    });
+    document.querySelectorAll('[data-osave]').forEach(function (el) {
+      el.onclick = saveSearch;
+    });
+    document.querySelectorAll('[data-orun]').forEach(function (el) {
+      el.onclick = function () {
+        api('run_search', { id: el.dataset.orun }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Search started');
+          loadOutreach().then(render);
+        });
+      };
+    });
+    document.querySelectorAll('[data-odel]').forEach(function (el) {
+      el.onclick = function () {
+        if (!confirm('Delete this search? Leads it already found stay in your CRM.')) return;
+        api('delete_search', { id: el.dataset.odel }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Search deleted');
+          loadOutreach().then(render);
+        });
+      };
+    });
+    document.querySelectorAll('[data-ocancel]').forEach(function (el) {
+      el.onclick = function () {
+        api('cancel_run', { id: el.dataset.ocancel }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Stopped');
+          loadOutreach().then(render);
+        });
+      };
+    });
+  }
+  function saveSearch() {
+    var s = S.sheet.s;
+    api('save_search', {
+      id: s.id || '',
+      name: document.getElementById('os-name').value,
+      keywords: document.getElementById('os-kw').value,
+      places: document.getElementById('os-places').value,
+      industry: industryValue('os-ind'),
+      depth: document.getElementById('os-depth').value,
+      lang: 'en',
+      emails: document.getElementById('os-email').checked ? 1 : 0,
+      min_reviews: document.getElementById('os-min').value,
+      max_reviews: document.getElementById('os-max').value,
+      require_phone: document.getElementById('os-phone').checked ? 1 : 0,
+      no_site_only: document.getElementById('os-nosite').checked ? 1 : 0,
+      daily: document.getElementById('os-daily').checked ? 1 : 0
+    }).then(function (r) {
+      if (r.error) return toast(r.error);
+      toast('Search saved');
+      S.sheet = null;
+      loadOutreach().then(render);
+    });
   }
   function doEmail() {
     var l = S.sheet.lead, from = S.sheet.from;
@@ -2215,10 +2393,31 @@
       });
   }
 
+  /* Load the Outreach tab. While a run is moving, look again in 15 seconds so
+     the results appear on their own. One timer at a time: go() clears it and
+     each load re-arms it only if the tab is still open. */
+  function loadOutreach() {
+    return api('outreach').then(function (r) {
+      S.outreach = r;
+      if (S.otimer) { clearTimeout(S.otimer); S.otimer = null; }
+      var moving = (r.runs || []).some(function (x) {
+        return x.status === 'queued' || x.status === 'running';
+      });
+      if (moving && S.view === 'outreach') {
+        S.otimer = setTimeout(function () {
+          S.otimer = null;
+          // Repainting under an open sheet would wipe what is being typed.
+          if (S.view === 'outreach') loadOutreach().then(function () { if (!S.sheet) render(); });
+        }, 15000);
+      }
+    });
+  }
+
   /* Single entry point for changing view: sets state, paints immediately so the
      UI never hangs, then loads that view's data. */
   function go(target, opts) {
     opts = opts || {};
+    if (S.otimer) { clearTimeout(S.otimer); S.otimer = null; }
     /* Remember which list a record was opened from, so the back link goes back
        where you came from rather than always to Clients. */
     if (target.view === 'detail' && S.view !== 'detail') S.from = S.view;
@@ -2233,6 +2432,7 @@
     if (target.view === 'dash')    return api('stats').then(function (r) { S.stats = r; render(); });
     if (target.view === 'clients') return api('clients').then(function (r) { S.clients = r.clients; render(); });
     if (target.view === 'leads')   return loadLeads().then(render);
+    if (target.view === 'outreach') return loadOutreach().then(render);
     if (target.view === 'cal')     return api('calendar').then(function (r) { S.cal = r.events; render(); });
     if (target.view === 'detail')  return api('lead', null, { id: target.id })
                                      .then(function (l) { S.detail = l; render(); });

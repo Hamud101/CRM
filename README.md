@@ -16,6 +16,9 @@ command, or on an ordinary PHP host.
 
 - **A call queue with outcomes and dial stats.** Work through today's calls,
   record what happened, and see how the numbers add up.
+- **Lead search finds businesses on Google Maps.** The Outreach tab saves a
+  search like "plumber in Austin, TX", runs it now or every day, and adds the
+  new businesses to Leads. Businesses already in the CRM are skipped.
 - **Proposals are generated, not written.** Tick the services a lead agreed to
   and the system renders a signable PDF from the current price list. The package
   that was agreed on gets recorded against the lead, so the proposal and the call
@@ -53,7 +56,9 @@ lib/
   documents.php  attachment handling
   templates.php  HTML template rendering
   trello.php     pushes won deals onto the delivery board
+  outreach.php   saved searches and the Google Maps scraper client
 bin/render-worker.php   PDF rendering, run from cron
+bin/outreach-worker.php Outreach lead search, run from cron
 install.sh       one-command local install with Docker
 compose.yaml     the Docker services
 Dockerfile       the app image

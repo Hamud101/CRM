@@ -6,19 +6,34 @@ services:
     image: crm-local:latest
     restart: unless-stopped
     env_file: .env
+    environment:
+      CRM_OUTREACH_DIR: /outreach
     ports:
       - "127.0.0.1:${CRM_PORT:-8080}:80"   # this computer only: there is no password
     volumes:
       - crm-data:/data
+      - outreach:/outreach
   worker:
     image: crm-local:latest
     restart: unless-stopped
     env_file: .env
+    environment:
+      CRM_OUTREACH_DIR: /outreach
     command: ["crm-worker"]
     healthcheck:
       disable: true   # the image's check probes Apache, which only the crm service runs
-    depends_on: [crm]
+    depends_on: [crm, scraper]
     volumes:
       - crm-data:/data
+      - outreach:/outreach
+  # Google Maps search for the Outreach tab. It shares the outreach volume with
+  # the CRM, publishes no port, and reaches nothing but Google.
+  scraper:
+    build: ./docker/scraper
+    image: crm-scraper:latest
+    restart: unless-stopped
+    volumes:
+      - outreach:/outreach
 volumes:
   crm-data:
+  outreach:

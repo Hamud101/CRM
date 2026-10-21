@@ -843,3 +843,20 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .planrow b{font-variant-numeric:tabular-nums;font-weight:700}
 .planrow em{font-style:normal;font-size:11.5px;color:var(--faint);margin-left:8px}
 .stopact{padding:0 16px 14px}
+
+/* ---- Outreach ---- */
+.ostatus{padding:12px 16px;border-radius:12px;margin-bottom:14px;font-size:13px}
+.ostatus.ok{background:var(--ok-wash);color:var(--ok)}
+.ostatus.warn{background:var(--warn-wash);color:var(--warn)}
+.ostatus.off{background:var(--s2);color:var(--soft)}
+.ostatus ~ .panel + .panel{margin-top:14px}
+.orow{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.orow:last-child{border-bottom:0}
+.orow .grow{flex:1;min-width:0}
+.orow .dim{color:var(--soft);font-size:12px}
+.orow button{padding:6px 10px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surface);font:inherit;font-size:12px;cursor:pointer}
+.sheet textarea{min-height:76px}
+.sheet label.chk{text-transform:none;letter-spacing:normal;font-size:13px;font-weight:500;
+  display:flex;gap:8px;align-items:center;margin:8px 0}
+.sheet label.chk input{width:auto}
