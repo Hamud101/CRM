@@ -1,0 +1,33 @@
+# Server-side backups made during scp deploys — never part of the source
+*.bak-*
+*.bak
+
+# Secrets and data never live in the web root; they sit in ~/appdata/crm on the
+# server (secrets.php, crm.sqlite). Belt and braces in case one is ever copied in.
+secrets.php
+*.sqlite
+*.sqlite-journal
+
+# Local JSON snapshots of CRM data. Lead records — never deployed, never committed.
+exports/
+
+# Build-tool bytecode
+__pycache__/
+
+# aider working files — local tool state, not project source
+.aider*
+
+# Local development notes. They document server paths and where the secrets
+# live, so they stay out of a public repo. Named in .git/info/exclude, which is
+# local to this checkout and never committed.
+*.notes.md
+
+# Built attachment PDFs. They carry the price list, so they stay out of a public
+# repo. Build them with attachments/src/build.py; deploy.sh sends them by name.
+attachments/*.pdf
+
+# Per-install pointer to the data folder, written by bin/setup.php.
+local.php
+
+# The local install's answers (business name, port). Written by install.sh.
+.env

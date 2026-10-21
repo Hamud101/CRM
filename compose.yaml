@@ -1,0 +1,24 @@
+# The local install. ./install.sh writes .env and runs `docker compose up -d --build`.
+name: crm
+services:
+  crm:
+    build: .
+    image: crm-local:latest
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:${CRM_PORT:-8080}:80"   # this computer only: there is no password
+    volumes:
+      - crm-data:/data
+  worker:
+    image: crm-local:latest
+    restart: unless-stopped
+    env_file: .env
+    command: ["crm-worker"]
+    healthcheck:
+      disable: true   # the image's check probes Apache, which only the crm service runs
+    depends_on: [crm]
+    volumes:
+      - crm-data:/data
+volumes:
+  crm-data:

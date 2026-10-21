@@ -1,0 +1,21 @@
+# Works wherever the app is installed: the domain root, /crm/, /sales/.
+# This file only governs requests inside the app's own folder, so matching
+# these names at any depth cannot catch anything outside it.
+RedirectMatch 403 /(lib|data|profiles|bin|templates|docker)(/|$)
+RedirectMatch 403 /(sync|local)\.php$
+RedirectMatch 403 /(install\.sh|deploy\.sh|Dockerfile|compose\.yaml)$
+# .git (if the app was cloned straight into the web folder), .htaccess, dotfiles
+RedirectMatch 403 /\.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  # Google redirects to the extensionless path registered in the console.
+  RewriteRule ^oauth/google/callback/?$ oauth_google.php [L,QSA]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "DENY"
+  Header set Referrer-Policy "same-origin"
+</IfModule>
