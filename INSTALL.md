@@ -69,6 +69,9 @@ docker compose start
 
 ### Backing up
 
+The easiest way is **Download a backup** in Setup. To copy everything,
+including passwords:
+
 ```bash
 docker compose exec -T crm tar -C /data -cf - . > crm-backup.tar
 ```
@@ -76,16 +79,13 @@ docker compose exec -T crm tar -C /data -cf - . > crm-backup.tar
 Your data lives in a Docker volume, not in the CRM folder, so deleting the
 folder does not delete your leads.
 
-### Email and calendar
+### Email, calls and backups
 
-Setup screens for email, calls and calendar inside the CRM are on the way.
-Until then, the settings file is at `/data/secrets.php` inside the container:
-
-```bash
-docker compose exec crm nano /data/secrets.php
-```
-
-Then see sections 4 and 5 below for what to fill in.
+Open the gear button at the bottom left of the CRM to set up email, choose how
+calls are made, and download or import a backup. For email, pick your provider,
+paste an app password, then send a test. Calls can open your computer's phone
+app, Google Voice, or Twilio. Google Calendar sync needs a Google Cloud client
+and is not available in the local install yet.
 
 ## Install on a web host
 
@@ -168,10 +168,10 @@ For a logo, put the image in the CRM's `assets/` folder and set
 
 ### 4. Optional: send email from the CRM
 
-In `secrets.php` in your data folder, fill in the `smtp_*` and `imap_*` lines
-with your mailbox's settings (your email provider lists them). The CRM sends
-over SMTP, then files a copy in your Sent folder over IMAP, so it also shows in
-your normal mail app.
+The easiest way is the Setup screen in the CRM, using the gear button. To do it
+by hand, fill in the `smtp_*` lines in `secrets.php`. Port 465 uses SSL, 587
+uses STARTTLS. The CRM files a copy in your Sent folder over IMAP, and it
+guesses the IMAP server from the SMTP one.
 
 ### 5. Optional: Google Calendar
 

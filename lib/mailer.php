@@ -2,8 +2,9 @@
 require_once __DIR__ . '/config.php';
 
 /**
- * Minimal SMTP over implicit TLS. No composer on this host, and PHP's mail()
- * can't do authenticated SMTP — this is the whole surface we need.
+ * Minimal SMTP: implicit TLS on 465, STARTTLS on any other port. No composer on
+ * this host, and PHP's mail() can't do authenticated SMTP, so this is the whole
+ * surface we need.
  *
  * Deliberately not a bulk sender: one message per call, sent synchronously,
  * so a failure surfaces to the person who clicked rather than into a log.
@@ -39,9 +40,9 @@ class Smtp {
      */
     public function send(string $to, string $subject, string $body, string $replyTo = '',
                          array $attachments = []): array {
-        $host = cfg('smtp_host'); $port = (int)cfg('smtp_port', 465);
+        $host = cfg('smtp_host'); $port = (int)(cfg('smtp_port') ?: 465);
         $user = cfg('smtp_user'); $pass = cfg('smtp_pass');
-        $from = cfg('smtp_from', $user);
+        $from = cfg('smtp_from') ?: $user;
 
         if (!$pass) return [false, 'SMTP password not configured', [], false];
 
@@ -64,14 +65,21 @@ class Smtp {
         }
 
         $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
-        $this->fp = @stream_socket_client("ssl://$host:$port", $errno, $errstr, 20,
+        $scheme = $port === 465 ? 'ssl' : 'tcp';
+        $this->fp = @stream_socket_client("$scheme://$host:$port", $errno, $errstr, 20,
                                           STREAM_CLIENT_CONNECT, $ctx);
         if (!$this->fp) return [false, "connect failed: $errstr", [], false];
         stream_set_timeout($this->fp, 20);
 
         try {
             $this->expect('220', 'banner');
-            $this->wr('EHLO ' . biz_mail_domain());           $this->expect('250', 'EHLO');
+            if ($port !== 465) {
+                $this->wr('EHLO ' . biz_mail_domain());   $this->expect('250', 'EHLO');
+                $this->wr('STARTTLS');                    $this->expect('220', 'STARTTLS');
+                if (!stream_socket_enable_crypto($this->fp, true, STREAM_CRYPTO_METHOD_TLS_CLIENT))
+                    throw new RuntimeException('STARTTLS failed');
+            }
+            $this->wr('EHLO ' . biz_mail_domain());       $this->expect('250', 'EHLO');
             $this->wr('AUTH LOGIN');                     $this->expect('334', 'AUTH');
             $this->wr(base64_encode($user));             $this->expect('334', 'username');
             $this->wr(base64_encode($pass), true);       $this->expect('235', 'password');
@@ -191,12 +199,13 @@ class Smtp {
 function mail_file_sent(string $raw): array {
     // Most providers pair smtp.<domain> with imap.<domain>, so an install that
     // only filled in SMTP still files its sent mail.
-    $host = cfg('imap_host', preg_replace('/^smtp\./i', 'imap.', (string)cfg('smtp_host', '')));
-    $port = (int)cfg('imap_port', 993);
-    $user = cfg('imap_user', cfg('smtp_user'));
-    $pass = cfg('imap_pass', cfg('smtp_pass'));
-    $box  = cfg('imap_sent', 'Sent');
+    $host = cfg('imap_host') ?: preg_replace('/^smtp\./i', 'imap.', (string)cfg('smtp_host', ''));
+    $port = (int)(cfg('imap_port') ?: 993);
+    $user = cfg('imap_user') ?: cfg('smtp_user');
+    $pass = cfg('imap_pass') ?: cfg('smtp_pass');
+    $box  = (string)(cfg('imap_sent') ?: 'Sent');
 
+    if ($box === 'none') return [true, 'the provider keeps a copy'];
     if (!$user || !$pass) return [false, 'IMAP not configured'];
 
     $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true]]);
@@ -219,6 +228,24 @@ function mail_file_sent(string $raw): array {
     $quote = function (string $s): string {
         return '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $s) . '"';
     };
+    /* LIST replies end in the mailbox name: quoted with escapes, or a bare atom. */
+    $find_sent = function () use ($fp): string {
+        while (($line = fgets($fp, 8192)) !== false) {
+            $line = rtrim($line, "\r\n");
+            if (strncmp($line, 'a9 ', 3) === 0) break;
+            if (strncmp($line, '* LIST ', 7) !== 0) continue;
+
+            $open = strpos($line, '(');
+            $close = $open !== false ? strpos($line, ')', $open) : false;
+            if ($open === false || $close === false) continue;
+            if (stripos(substr($line, $open, $close - $open + 1), '\\Sent') === false) continue;
+
+            if (preg_match('~"((?:[^"\\\\]|\\\\.)*)"\s*$~', $line, $m))
+                return str_replace(['\\\\', '\\"'], ['\\', '"'], $m[1]);
+            if (preg_match('~(\S+)\s*$~', $line, $m)) return $m[1];
+        }
+        return 'Sent';
+    };
 
     try {
         if (strncmp((string)fgets($fp, 8192), '* OK', 4) !== 0) {
@@ -228,6 +255,11 @@ function mail_file_sent(string $raw): array {
         fwrite($fp, 'a1 LOGIN ' . $quote($user) . ' ' . $quote($pass) . "\r\n");
         $r = $reply('a1');
         if (strncmp($r, 'a1 OK', 5) !== 0) throw new RuntimeException('login rejected');
+
+        if ($box === 'auto') {
+            fwrite($fp, "a9 LIST \"\" \"*\"\r\n");
+            $box = $find_sent();
+        }
 
         /* The literal length is a byte count of exactly what follows, which is
            why $raw had to be built CRLF-clean and un-dot-stuffed. */
@@ -261,7 +293,12 @@ function send_mail(string $to, string $subject, string $body, string $replyTo = 
 /** The From display name: the business name, stripped of anything that could
  *  break the header. Quoted when it holds characters a bare name may not. */
 function mail_display_name(): string {
-    $n = trim(preg_replace('~[\x00-\x1f"<>]~', '', (string)biz('name', '')));
+    $n = trim((string)cfg('from_name', ''));
+    if ($n === '') {
+        $n = (string)biz('name', '');
+        if ($n === 'My Business') $n = '';
+    }
+    $n = trim(preg_replace('~[\x00-\x1f"<>]~', '', $n));
     if ($n === '') return '';
     return preg_match('~[^A-Za-z0-9 ]~', $n) ? '"' . $n . '"' : $n;
 }

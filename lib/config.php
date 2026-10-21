@@ -9,6 +9,20 @@ function cfg(string $key, $default = null) {
         $path = crm_data_dir() . '/secrets.php';
         $c = is_readable($path) ? require $path : [];
     }
+
+    // Settings saved from the Setup screen win over secrets.php, so nobody has
+    // to edit a PHP file. Read fresh, because a save can happen mid-request.
+    $settingsPath = crm_data_dir() . '/settings.json';
+    if (is_readable($settingsPath)) {
+        $saved = json_decode((string)@file_get_contents($settingsPath), true);
+        if (is_array($saved)) {
+            foreach ($saved as $k => $v) {
+                if (!is_string($k) || $k === 'business_name' || $k === 'sender') continue;
+                $c[$k] = $v;
+            }
+        }
+    }
+
     return $c[$key] ?? $default;
 }
 

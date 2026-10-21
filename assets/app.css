@@ -860,3 +860,43 @@ body.gate{display:grid;place-items:center;overflow:auto}
 .sheet label.chk{text-transform:none;letter-spacing:normal;font-size:13px;font-weight:500;
   display:flex;gap:8px;align-items:center;margin:8px 0}
 .sheet label.chk input{width:auto}
+
+/* ---- Setup ---- */
+.panel.setup + .panel.setup{margin-top:14px}
+.panel.setup .phead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.schip{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;
+  background:var(--s2);color:var(--soft)}
+.schip.ok{background:var(--ok-wash);color:var(--ok)}
+.schip.warn{background:var(--warn-wash);color:var(--warn)}
+.sbody{padding:14px 16px 16px;max-width:560px}
+.sbody label{display:block;font-size:9.5px;font-weight:700;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--faint);margin:11px 0 5px}
+.sbody input,.sbody select{width:100%;padding:10px 12px;border-radius:8px;
+  border:1px solid var(--line);background:var(--surface)}
+.sbody .opt{text-transform:none;letter-spacing:normal;color:var(--faint)}
+.sbody .hint{font-size:12.5px;color:var(--soft);margin:6px 0}
+.sbody p{font-size:13px;color:var(--soft);margin:0 0 6px}
+.sopts{display:flex;flex-wrap:wrap;gap:7px}
+.sopts button{padding:8px 12px;border-radius:8px;border:1px solid var(--line);
+  background:var(--surface);font-size:12.5px;font-weight:600}
+.sopts button.on{background:var(--accent-wash);border-color:var(--ink)}
+.smodes{display:grid;gap:7px}
+.smodes button{text-align:left;padding:10px 12px;border-radius:10px;
+  border:1px solid var(--line);background:var(--surface)}
+.smodes button b{display:block;font-size:13px}
+.smodes button span{display:block;font-size:12px;color:var(--soft)}
+.smodes button.on{background:var(--accent-wash);border-color:var(--ink)}
+.sacts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.sacts button,.sbtn{padding:9px 14px;border-radius:9px;font-weight:700;font-size:13px;
+  background:var(--s2);border:1px solid var(--line);color:var(--ink);cursor:pointer;
+  text-decoration:none;display:inline-block}
+.sacts .go{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.sacts button:disabled,.sbtn:disabled{opacity:.5;cursor:default}
+.sbtn input[type=file]{display:none}
+/* The import button is a <label> (it wraps the file input), so undo the form label look. */
+.sbody label.sbtn{margin:0;font-size:13px;letter-spacing:normal;text-transform:none;color:var(--ink)}
+.sacts{align-items:center}
+.snote{margin-top:10px;font-size:13px;padding:9px 12px;border-radius:8px}
+.snote.ok{background:var(--ok-wash);color:var(--ok)}
+.snote.bad{background:var(--warn-wash);color:var(--warn)}
+@media (max-width:640px){.sbody{max-width:none}}

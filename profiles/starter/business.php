@@ -19,6 +19,10 @@ return [
     // What a booked sales meeting is called: "demo", "site visit", "meeting".
     'demo_word' => 'demo',
 
+    /* What clicking a phone number does until Setup says otherwise: 'phone'
+       (the computer's phone app), 'gvoice' (Google Voice) or 'twilio'. */
+    'calls' => 'phone',
+
     /* Stage labels. The keys are fixed because the app reasons about them
        (won = client, lost = closed); only the words people see change.
        Any stage left out keeps its default label. */

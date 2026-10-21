@@ -6,9 +6,15 @@ FROM php:8.3-apache-bookworm
 # templates/sign_fields.py needs; 3.17.4 is what the shared host runs.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      chromium python3 python3-pip fonts-dejavu-core fonts-liberation curl nano \
+      chromium python3 python3-pip fonts-dejavu-core fonts-liberation libzip-dev curl nano \
  && pip3 install --no-cache-dir --break-system-packages pypdf==3.17.4 \
+ && docker-php-ext-install zip \
  && rm -rf /var/lib/apt/lists/*
+
+# A document can be up to 20 MB and a backup much larger; PHP's defaults stop
+# at 2 MB, which made uploads fail with "no file received".
+RUN printf 'upload_max_filesize=256M\npost_max_size=260M\nmax_execution_time=300\n' \
+      > /usr/local/etc/php/conf.d/crm.ini
 
 # The app's .htaccess needs AllowOverride, and the API sets a few headers.
 RUN a2enmod rewrite headers

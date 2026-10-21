@@ -12,6 +12,8 @@
  *                                        own folder name)
  *   3. <data dir>/business.php           private to this install, outside the web
  *                                        root: the real name, prices, people
+ *   4. <data dir>/settings.json          the name and sender saved from the
+ *                                        Setup screen
  *
  * Feature switches merge key by key; every other key is replaced whole.
  */
@@ -51,6 +53,16 @@ function biz_all(): array {
         $b = array_replace($b, $layer);
         $b['features'] = $features;
     }
+
+    // The Setup screen's name and sender sit on top of the profile files.
+    $saved = json_decode((string)@file_get_contents(crm_data_dir() . '/settings.json'), true);
+    if (is_array($saved)) {
+        if (is_string($saved['business_name'] ?? null) && $saved['business_name'] !== '')
+            $b['name'] = $saved['business_name'];
+        if (is_string($saved['sender'] ?? null) && $saved['sender'] !== '')
+            $b['sender'] = $saved['sender'];
+    }
+
     return $b;
 }
 

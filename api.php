@@ -7,6 +7,7 @@ require_once __DIR__ . '/lib/documents.php';
 require_once __DIR__ . '/lib/proposal.php';
 require_once __DIR__ . '/lib/trello.php';
 require_once __DIR__ . '/lib/outreach.php';
+require_once __DIR__ . '/lib/settings.php';
 require_auth();
 
 $a = $_GET['a'] ?? '';
@@ -235,7 +236,9 @@ case 'bootstrap': {
         'upcoming' => $upcoming->fetchAll(),
         'csrf'     => csrf_token(),
         'calendar_connected' => g_connected(),
-        'email_ready'        => cfg('smtp_pass', '') !== '',
+        'email_ready'        => mail_ready(),
+        'calendar_available' => calendar_available(),
+        'calls'              => calls_mode(),
     ]);
 }
 
@@ -383,7 +386,8 @@ case 'schedule': {
 
     json_out(['ok' => true, 'starts_at' => $ts, 'uid' => $uid,
               'calendar_synced' => $res['synced'], 'calendar_error' => $res['syncErr'],
-              'trello_carded' => $res['carded'], 'invited' => $inviteEmail !== '',
+              'trello_carded' => $res['carded'],
+              'invited' => $inviteEmail !== '' && $res['synced'],
               'meet_link' => $res['meet'] ?? null]);
 }
 
@@ -606,7 +610,8 @@ case 'update_event': {
 
     json_out(['ok' => true, 'starts_at' => $ts,
               'calendar_synced' => $synced, 'calendar_error' => $syncErr,
-              'trello_carded' => $carded, 'invited' => $inviteEmail !== '' && $notify,
+              'trello_carded' => $carded,
+              'invited' => $inviteEmail !== '' && $notify && $synced,
               'meet_link' => $meet]);
 }
 
@@ -1347,6 +1352,93 @@ case 'cancel_run': {
         json_out(['error' => 'This run has already finished.'], 409);
     }
     json_out(['ok' => true]);
+}
+
+/* What the Setup screen shows, with every password and token left out. */
+case 'setup': {
+    json_out(settings_public());
+}
+
+/* Save the business name, sender and timezone from Setup. */
+case 'save_business': {
+    $clean = function ($v): string {
+        return substr(preg_replace('~[\x00-\x1F\x7F]+~', '', trim((string)$v)), 0, 80);
+    };
+    $name = $clean($in['business_name'] ?? '');
+    $sender = $clean($in['sender'] ?? '');
+    $timezone = trim((string)($in['timezone'] ?? ''));
+    if (!in_array($timezone, DateTimeZone::listIdentifiers(), true))
+        json_out(['error' => 'Pick a timezone from the list.'], 400);
+    settings_save(['business_name' => $name, 'sender' => $sender, 'timezone' => $timezone]);
+    json_out(['ok' => true]);
+}
+
+/* Change the mail settings and return the public mail block again. */
+case 'save_mail': {
+    [$ok, $err] = settings_apply_mail($in);
+    if (!$ok) json_out(['error' => $err], 400);
+    $public = settings_public();
+    json_out(['ok' => true, 'mail' => $public['mail']]);
+}
+
+/* Send one test message and remember when it last worked. */
+case 'test_mail': {
+    if (!mail_ready()) json_out(['error' => 'Save your email settings first.'], 400);
+    [$ok, $info, , $filed] = send_mail(cfg('smtp_from'), 'Test from your CRM',
+        "This is a test from your CRM. If you are reading this, email is set up.\n");
+    if (!$ok) json_out(['error' => mail_error_plain($info)], 502);
+    settings_save(['mail_tested_at' => time()]);
+    json_out(['ok' => true, 'to' => cfg('smtp_from'), 'filed' => (bool)$filed]);
+}
+
+/* Change how calls are made and return the public calls block again. */
+case 'save_calls': {
+    [$ok, $err] = settings_apply_calls($in);
+    if (!$ok) json_out(['error' => $err], 400);
+    $public = settings_public();
+    json_out(['ok' => true, 'calls' => $public['calls']]);
+}
+
+/* Check the saved Twilio keys without placing a call. */
+case 'test_calls': {
+    [$ok, $msg] = twilio_check();
+    if (!$ok) json_out(['error' => $msg], 502);
+    json_out(['ok' => true, 'message' => $msg]);
+}
+
+/* Ring the operator's phone first, then bridge the lead when they pick up. */
+case 'dial': {
+    [$ok, $msg] = twilio_dial((string)($in['phone'] ?? ''));
+    if (!$ok) json_out(['error' => $msg], 502);
+    json_out(['ok' => true, 'message' => $msg]);
+}
+
+/* Download a zip of the database, documents and sanitized settings. */
+case 'export': {
+    try {
+        $path = backup_export($pdo);
+    } catch (Throwable $e) {
+        json_out(['error' => 'Could not make the backup: ' . $e->getMessage()], 500);
+    }
+    header('Content-Type: application/zip');
+    header('Content-Disposition: attachment; filename="crm-backup-' . date('Y-m-d') . '.zip"');
+    header('Content-Length: ' . filesize($path));
+    readfile($path);
+    unlink($path);
+    exit;
+}
+
+/* Imports are uploaded whole; PHP's 2 MB default is why crm.ini raises it. */
+case 'import': {
+    $file = $_FILES['file'] ?? null;
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK)
+        json_out(['error' => 'No file arrived. Backups over 256 MB cannot be imported here.'], 400);
+    $tmp = (string)($file['tmp_name'] ?? '');
+    if (!is_uploaded_file($tmp))
+        json_out(['error' => 'No file arrived. Backups over 256 MB cannot be imported here.'], 400);
+    [$ok, $msg] = backup_import($pdo, $tmp);
+    if (!$ok) json_out(['error' => $msg], 400);
+    json_out(['ok' => true, 'message' => $msg]);
 }
 
 case 'search': {

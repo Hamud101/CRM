@@ -24,6 +24,7 @@
     outreach:'<svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>',
     gear:  '<svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm8.5-2c0-.5 0-1-.1-1.4l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2.4-1.4L15.2 2h-4l-.4 2.6c-.9.3-1.7.8-2.4 1.4l-2.4-1-2 3.4 2 1.6a8.6 8.6 0 0 0 0 2.8l-2 1.6 2 3.4 2.4-1c.7.6 1.5 1.1 2.4 1.4l.4 2.6h4l.4-2.6c.9-.3 1.7-.8 2.4-1.4l2.4 1 2-3.4-2-1.6c.1-.4.1-.9.1-1.4z"/></svg>'
   };
+  ICON.setup = ICON.gear;
 
   /* The URL carries the view so a refresh lands where you were, and the browser
      back button works. Queue position rides in sessionStorage instead — it is
@@ -35,7 +36,7 @@
     var v = p[0];
     if (v === 'call')   return { view: 'call', stage: p[1] || 'new', industry: p[2] || '' };
     if (v === 'lead' && p[1]) return { view: 'detail', id: p[1] };
-    if (['dash', 'cal', 'clients', 'leads', 'outreach'].indexOf(v) >= 0) return { view: v };
+    if (['dash', 'cal', 'clients', 'leads', 'outreach', 'setup'].indexOf(v) >= 0) return { view: v };
     return null;
   }
   function writeHash() {
@@ -75,12 +76,17 @@
     });
   }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-  /* Google Voice takes an E.164 number on its call endpoint. Clicking the
-     number itself dials — a separate "Call now" button was saying it twice. */
+  /* Google Voice takes an E.164 number on its call endpoint. Every other mode
+     gets a plain tel: link: the browser hands it to the phone app, or the click
+     handler at the bottom sends it to Twilio. Clicking the number itself dials,
+     so a separate "Call now" button was saying it twice. */
   function dialHref(p) {
     var d = String(p).replace(/\D/g, '');
     if (d.length === 10) d = '1' + d;
-    return 'https://voice.google.com/u/0/calls?a=nc,%2B' + d;
+    if (S.boot && S.boot.calls === 'gvoice') {
+      return 'https://voice.google.com/u/0/calls?a=nc,%2B' + d;
+    }
+    return 'tel:+' + d;
   }
   function prettyPhone(p) {
     var d = String(p).replace(/\D/g, '');
@@ -264,8 +270,12 @@
   function rail() {
     var dueN = (S.boot.due || []).length;
     function b(id, label) {
-      return '<button class="rbtn ' + (S.view === id ? 'on' : '') + '" data-tab="' + id + '" title="' + label + '">' +
-             ICON[id] + (id === 'due' && dueN ? '<span class="dot">' + dueN + '</span>' : '') + '</button>';
+      var notReady = id === 'setup' && !S.boot.email_ready;
+      var dot = id === 'due' && dueN ? '<span class="dot">' + dueN + '</span>'
+              : notReady ? '<span class="dot"></span>' : '';
+      return '<button class="rbtn ' + (S.view === id ? 'on' : '') + '" data-tab="' + id +
+             '" title="' + (notReady ? 'Setup: email is not set up yet' : label) + '">' +
+             ICON[id] + dot + '</button>';
     }
     /* The logo IS the dashboard button — it always went to #dash, so a second
        grid icon doing the same thing was just taking up a slot. It carries the
@@ -280,9 +290,7 @@
       (FEAT.outreach !== false ? b('outreach', 'Outreach') : '') +
       b('clients', 'Clients') + b('cal', 'Calendar') +
       '<div class="spacer"></div>' +
-      '<a class="rbtn ' + (S.boot.calendar_connected ? '' : 'alert') + '" href="' + BASE + 'oauth_google.php" ' +
-        'title="' + (S.boot.calendar_connected ? 'Calendar connected' : 'Calendar NOT connected') + '">' +
-        ICON.gear + '</a>' +
+      b('setup', 'Setup') +
       (!(window.CRM && window.CRM.local) ?
       '<a class="rbtn" href="' + BASE + '?logout=1" title="Sign out">' +
         '<svg viewBox="0 0 24 24"><path d="M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h5v-2H5V5h5zm7.6 4-1.4 1.4L18.2 11H9v2h9.2l-2 2.6L17.6 17 22 12z"/></svg>' +
@@ -293,7 +301,7 @@
   function head() {
     var pct = S.queue.length ? Math.round((S.i / S.queue.length) * 100) : 0;
     var titles = { dash:'Dashboard', call:'Call queue', cal:'Calendar',
-                   clients:'Clients', leads:'Leads', outreach:'Outreach' };
+                   clients:'Clients', leads:'Leads', outreach:'Outreach', setup:'Setup' };
     var ctx = '<b>' + (titles[S.view] || 'Dashboard') + '</b>';
     if (S.view === 'call' && S.queue.length) {
       ctx += ' <span class="dim">lead ' + Math.min(S.i + 1, S.queue.length) +
@@ -326,7 +334,7 @@
         ? '<button class="addpill" data-osnew="1">+ New search</button>'
         : '') +
       /* Only on the Calendar view — it was noise everywhere else. */
-      (S.view === 'cal'
+      (S.view === 'cal' && S.boot.calendar_available
         ? '<a class="calpill ' + (S.boot.calendar_connected ? 'on' : 'off') + '" ' +
           'href="' + BASE + 'oauth_google.php' + (S.boot.calendar_connected ? '' : '?start=1') + '">' +
           (S.boot.calendar_connected ? 'Calendar connected' : 'Connect Google Calendar') + '</a>'
@@ -629,20 +637,21 @@
               '<button class="donebtn" data-complete="' + e.id + '" title="Mark this as done">Done</button></div>';
           }).join('') + '</div>'
         : '<div class="bars"><div class="barsempty">Nothing due today. Everything scheduled ' +
-          'lives in Calendar and on your Google Calendar.</div></div>') + '</div>';
+          'lives in Calendar' + (S.boot.calendar_connected ? ' and on your Google Calendar.' : '.') +
+          '</div></div>') + '</div>';
 
     /* Upcoming demos with their Meet link right on the dashboard, so joining a
        call never means digging through the calendar first. */
     var demos = d.upcoming_demos || [];
     var demopanel = demos.length
-      ? '<div class="panel"><div class="phead">Upcoming demos</div><div class="list flush">' +
+      ? '<div class="panel"><div class="phead">Upcoming ' + DEMO + 's</div><div class="list flush">' +
           demos.map(function (e) {
             return '<div class="srow click" data-editevent="' + e.id + '"><span class="sw">' + when(e.starts_at) + '</span>' +
               '<span class="sn">' + esc(e.name) + '</span>' +
               (e.meet_link
                 ? '<a class="meet" href="' + esc(e.meet_link) + '" target="_blank" rel="noopener" ' +
                   'onclick="event.stopPropagation()" title="Join the meeting">Google Meet</a>'
-                : '<span class="nolink">no Meet link</span>') +
+                : (S.boot.calendar_connected ? '<span class="nolink">no Meet link</span>' : '')) +
               '<button class="donebtn" data-complete="' + e.id + '" title="Mark this demo as done">Done</button>' +
             '</div>';
           }).join('') + '</div></div>'
@@ -1117,6 +1126,160 @@
       '<div class="panel"><div class="phead"><b>Recent runs</b></div>' + runs + '</div>';
   }
 
+  /* Setup. Four panels in one screen (email, calls, business details, backups),
+     plus the calendar link when that is available. The gear in the rail opens
+     it, and a dot there warns when email has not been set up yet. */
+  function viewSetup() {
+    if (!S.setup) return '<div class="panel"><div class="empty">Loading…</div></div>';
+    var f = S.setupForm, m = S.setup.mail || {}, c = S.setup.calls || {};
+    var busy = S.setupBusy;
+    /* The last result for a panel stays on the page: a toast is gone before a
+       two-line mail error can be read. */
+    function note(panel) {
+      var n = S.setupNote;
+      return n && n.panel === panel
+        ? '<div class="snote ' + (n.ok ? 'ok' : 'bad') + '">' + esc(n.text) + '</div>' : '';
+    }
+
+    var chip = m.ready && m.tested_at ? '<span class="schip ok">Working</span>'
+             : m.ready ? '<span class="schip warn">Not tested</span>'
+             : '<span class="schip warn">Not set up</span>';
+
+    var prov = S.setup.providers || {};
+    var provBtns = Object.keys(prov).map(function (k) {
+      return '<button data-sprov="' + esc(k) + '"' + (f.provider === k ? ' class="on"' : '') + '>' +
+        esc(prov[k].label || k) + '</button>';
+    }).join('');
+    var provHelp = '';
+    if (f.provider && prov[f.provider]) {
+      var p = prov[f.provider];
+      if (p.help) provHelp += '<div class="hint">' + esc(p.help) + '</div>';
+      if (p.url) {
+        provHelp += '<div class="hint"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">' +
+          'Open the page to make an app password</a></div>';
+      }
+    }
+    var otherFields = f.provider === 'other'
+      ? '<label>Outgoing mail server</label>' +
+        '<input id="st-host" value="' + esc(f.smtp_host) + '" placeholder="mail.yourdomain.com">' +
+        '<label>Port</label>' +
+        '<select id="st-port">' +
+          '<option value="465"' + (String(f.smtp_port) === '465' ? ' selected' : '') + '>465 SSL</option>' +
+          '<option value="587"' + (String(f.smtp_port) === '587' ? ' selected' : '') + '>587 STARTTLS</option>' +
+        '</select>' +
+        '<label>Incoming mail server <span class="opt">optional</span></label>' +
+        '<input id="st-imap" value="' + esc(f.imap_host) + '">'
+      : '';
+    var emailPanel = '<div class="panel setup"><div class="phead"><b>Email</b>' + chip + '</div>' +
+      '<div class="sbody">' +
+        '<p>Emails to leads go out from your own address, and a copy lands in your Sent folder.</p>' +
+        '<label>Your email provider</label>' +
+        '<div class="sopts">' + provBtns + '</div>' +
+        provHelp +
+        '<label>Email address</label>' +
+        '<input id="st-addr" type="email" value="' + esc(f.address) + '">' +
+        '<label>App password</label>' +
+        '<input id="st-pass" type="password" autocomplete="new-password" value="' + esc(f.password) + '" placeholder="' +
+          esc(m.password_set ? 'Saved. Leave blank to keep it.' : 'Paste it here') + '">' +
+        otherFields +
+        '<label>Name people see <span class="opt">optional</span></label>' +
+        '<input id="st-fromname" value="' + esc(f.from_name) + '" placeholder="' +
+          esc(S.setup.business_name || 'Your name') + '">' +
+        '<div class="sacts">' +
+          '<button class="go" data-smail="1"' + (busy ? ' disabled' : '') + '>' +
+            (busy === 'mail' ? 'Saving…' : 'Save') + '</button>' +
+          '<button class="sbtn" data-stest="1"' + (busy || !m.ready ? ' disabled' : '') + '>' +
+            (busy === 'test' ? 'Sending…' : 'Send a test email') + '</button>' +
+        '</div>' + note('mail') +
+      '</div></div>';
+
+    var modes = [
+      { k: 'phone', s: 'Phone app', t: "This computer's phone app",
+        d: 'Opens the app your computer uses for phone links, such as Phone Link on Windows or ' +
+           'FaceTime on a Mac paired with your iPhone.' },
+      { k: 'gvoice', s: 'Google Voice', t: 'Google Voice',
+        d: 'Opens Google Voice in your browser with the number ready to call. You need a Google ' +
+           'Voice number.' },
+      { k: 'twilio', s: 'Twilio', t: 'Twilio',
+        d: 'Twilio rings your phone, then connects you to the lead, showing your Twilio number. ' +
+           'Needs a Twilio account (paid).' }
+    ];
+    var modeBtns = modes.map(function (o) {
+      return '<button data-smode="' + o.k + '"' + (f.mode === o.k ? ' class="on"' : '') + '>' +
+        '<b>' + o.t + '</b><span>' + o.d + '</span></button>';
+    }).join('');
+    var chosen = modes.filter(function (o) { return o.k === f.mode; })[0] || modes[0];
+    var twilioFields = f.mode === 'twilio'
+      ? '<label>Account SID</label>' +
+        '<input id="st-sid" value="' + esc(f.twilio_sid) + '">' +
+        '<label>Auth Token</label>' +
+        '<input id="st-token" type="password" autocomplete="new-password" value="' + esc(f.twilio_token) + '" placeholder="' +
+          esc(c.twilio_token_set ? 'Saved. Leave blank to keep it.' : 'Paste it here') + '">' +
+        '<label>Your Twilio number</label>' +
+        '<input id="st-from" value="' + esc(f.twilio_from) + '">' +
+        '<label>Your own phone (Twilio rings this first)</label>' +
+        '<input id="st-mine" value="' + esc(f.twilio_my_phone) + '">' +
+        '<div class="hint">Find the Account SID and Auth Token on the Twilio console home page. ' +
+          '<a href="https://console.twilio.com" target="_blank" rel="noopener">Open the Twilio console</a></div>'
+      : '';
+    var callsPanel = '<div class="panel setup"><div class="phead"><b>Calls</b>' +
+      '<span class="schip">' + chosen.s + '</span></div>' +
+      '<div class="sbody">' +
+        '<p>Pick what happens when you click a phone number.</p>' +
+        '<div class="smodes">' + modeBtns + '</div>' +
+        twilioFields +
+        '<div class="sacts">' +
+          '<button class="go" data-scalls="1"' + (busy ? ' disabled' : '') + '>' +
+            (busy === 'calls' ? 'Saving…' : 'Save') + '</button>' +
+          (f.mode === 'twilio'
+            ? '<button class="sbtn" data-sctest="1"' + (busy ? ' disabled' : '') + '>' +
+              (busy === 'ctest' ? 'Checking…' : 'Check my keys') + '</button>'
+            : '') +
+        '</div>' + note('calls') +
+      '</div></div>';
+
+    var tzOpts = (S.setup.timezones || []).map(function (z) {
+      return '<option value="' + esc(z) + '"' + (f.timezone === z ? ' selected' : '') + '>' +
+        esc(z) + '</option>';
+    }).join('');
+    var bizPanel = '<div class="panel setup"><div class="phead"><b>Business</b></div>' +
+      '<div class="sbody">' +
+        '<label>Business name</label>' +
+        '<input id="st-biz" value="' + esc(f.business_name) + '" placeholder="Leave blank if you like">' +
+        '<label>Your first name, for signing emails</label>' +
+        '<input id="st-sender" value="' + esc(f.sender) + '">' +
+        '<label>Timezone</label>' +
+        '<select id="st-tz">' + tzOpts + '</select>' +
+        '<div class="sacts">' +
+          '<button class="go" data-sbiz="1"' + (busy ? ' disabled' : '') + '>' +
+            (busy === 'biz' ? 'Saving…' : 'Save') + '</button>' +
+        '</div>' +
+      '</div></div>';
+
+    var dataPanel = '<div class="panel setup"><div class="phead"><b>Your data</b></div>' +
+      '<div class="sbody">' +
+        '<p>Download a backup to keep a copy, or to move the CRM to another computer. ' +
+          'Passwords are not included.</p>' +
+        '<div class="sacts">' +
+          '<a class="sbtn" href="' + BASE + 'api.php?a=export">Download a backup</a>' +
+          '<label class="sbtn">Import a backup<input type="file" accept=".zip" id="st-import"></label>' +
+        '</div>' +
+        '<div class="hint">Importing replaces the leads and history in this CRM. ' +
+          'Your current data is saved first.</div>' + note('data') +
+      '</div></div>';
+
+    var calPanel = S.setup.calendar && S.setup.calendar.available
+      ? '<div class="panel setup"><div class="phead"><b>Google Calendar</b>' +
+        '<span class="schip ' + (S.setup.calendar.connected ? 'ok' : 'warn') + '">' +
+        (S.setup.calendar.connected ? 'Connected' : 'Not connected') + '</span></div>' +
+        '<div class="sbody">' +
+          '<a class="sbtn" href="' + BASE + 'oauth_google.php">Manage calendar connection</a>' +
+        '</div></div>'
+      : '';
+
+    return emailPanel + callsPanel + bizPanel + dataPanel + calPanel;
+  }
+
   /* Leads: everyone who has not signed. `tone` picks the badge colour from the
      status tokens already in the palette — warm for something slipping, blue
      for something in flight, grey for cold. */
@@ -1218,7 +1381,9 @@
   function viewLeads() {
     if (!S.leads) return '<div class="panel"><div class="empty">Loading…</div></div>';
     if (!S.leads.length) return '<div class="panel"><div class="empty"><b>No leads</b>' +
-      'Import a call list, or add one by hand with + Add lead.</div></div>';
+      (FEAT.outreach !== false
+        ? 'Find some with Outreach, or add one by hand with + Add lead.'
+        : 'Add one by hand with + Add lead.') + '</div></div>';
 
     var rows = S.leads.filter(function (l) {
       return (!S.leadFilter || groupFor(l.stage).key === S.leadFilter) &&
@@ -1499,6 +1664,13 @@
         '</div></div></div>';
     }
     if (k === 'email') {
+      if (!S.boot.email_ready) {
+        return '<div class="sheet-bg" data-close="1"><div class="sheet">' +
+          '<h3>Email is not set up yet</h3>' +
+          '<p class="hint">Connect your email address once in Setup, then you can send from here.</p>' +
+          '<div class="acts"><button class="cancel" data-close="1">Cancel</button>' +
+          '<button class="go" data-gosetup="1">Set up email</button></div></div></div>';
+      }
       var l = S.sheet.lead;
       return '<div class="sheet-bg" data-close="1"><div class="sheet email">' +
         '<h3>Email</h3><div class="who">' + esc(l.name) + ' · ' + esc(l.email) + '</div>' +
@@ -1525,13 +1697,13 @@
           '<button data-quick="tom2">Tomorrow 2pm</button><button data-quick="week">Next week</button>' +
         '</div>' +
         schedField() +
-        (k === 'demo'
-          ? '<label>Invite them <span class="opt">— sends a Google Meet link</span></label>' +
+        (k === 'demo' && S.boot.calendar_connected
+          ? '<label>Invite them <span class="opt">: sends a Google Meet link</span></label>' +
             '<input type="email" id="sch-email" placeholder="their@email.com" value="' +
               esc(S.sheet.email || '') + '">' +
             '<div class="hint">' + (S.sheet.email
               ? 'They will get a calendar invite with a Meet link.'
-              : 'No email on this lead yet — add one to send an invite, or leave blank to just block the time.') +
+              : 'No email on this lead yet. Add one to send an invite, or leave blank to just block the time.') +
             '</div>'
           : '') +
         '<label>Note</label><textarea id="sch-note" rows="2" placeholder="What to cover">' +
@@ -1744,7 +1916,8 @@
            S.view === 'detail' ? viewDetail() :
            S.view === 'leads' ? viewLeads() :
            S.view === 'clients' ? viewClients() :
-           S.view === 'outreach' ? viewOutreach() : viewDash()) +
+           S.view === 'outreach' ? viewOutreach() :
+           S.view === 'setup' ? viewSetup() : viewDash()) +
         '</div></div>' +
       '</div>' + (S.sheet ? sheet() : '');
     wire();
@@ -2222,6 +2395,181 @@
     var ebod = document.getElementById('em-body');
     if (ebod) ebod.oninput = function () { S.sheet.body = ebod.value; };
     var send = document.querySelector('[data-send]'); if (send) send.onclick = doEmail;
+
+    document.querySelectorAll('[data-osnew]').forEach(function (el) {
+      el.onclick = function () {
+        S.sheet = { kind: 'osearch', s: { name: '', keywords: '', places: '', industry: 'other',
+          depth: 2, min_reviews: 0, max_reviews: 0, require_phone: 1, emails: 0,
+          no_site_only: 0, daily: 0 } };
+        render();
+      };
+    });
+    document.querySelectorAll('[data-oedit]').forEach(function (el) {
+      el.onclick = function () {
+        var s = (S.outreach.searches || []).filter(function (x) { return x.id === el.dataset.oedit; })[0];
+        if (s) { S.sheet = { kind: 'osearch', s: s }; render(); }
+      };
+    });
+    document.querySelectorAll('[data-osave]').forEach(function (el) {
+      el.onclick = saveSearch;
+    });
+    document.querySelectorAll('[data-orun]').forEach(function (el) {
+      el.onclick = function () {
+        api('run_search', { id: el.dataset.orun }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Search started');
+          loadOutreach().then(render);
+        });
+      };
+    });
+    document.querySelectorAll('[data-odel]').forEach(function (el) {
+      el.onclick = function () {
+        if (!confirm('Delete this search? Leads it already found stay in your CRM.')) return;
+        api('delete_search', { id: el.dataset.odel }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Search deleted');
+          loadOutreach().then(render);
+        });
+      };
+    });
+    document.querySelectorAll('[data-ocancel]').forEach(function (el) {
+      el.onclick = function () {
+        api('cancel_run', { id: el.dataset.ocancel }).then(function (r) {
+          if (r.error) return toast(r.error);
+          toast('Stopped');
+          loadOutreach().then(render);
+        });
+      };
+    });
+
+    /* ---- Setup ---- */
+    var fieldMap = {
+      'st-addr': 'address', 'st-pass': 'password', 'st-host': 'smtp_host', 'st-port': 'smtp_port',
+      'st-imap': 'imap_host', 'st-fromname': 'from_name', 'st-sid': 'twilio_sid',
+      'st-token': 'twilio_token', 'st-from': 'twilio_from', 'st-mine': 'twilio_my_phone',
+      'st-biz': 'business_name', 'st-sender': 'sender', 'st-tz': 'timezone'
+    };
+    Object.keys(fieldMap).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.oninput = el.onchange = function () { S.setupForm[fieldMap[id]] = el.value; };
+    });
+    document.querySelectorAll('[data-sprov]').forEach(function (el) {
+      el.onclick = function () {
+        var k = el.dataset.sprov;
+        S.setupForm.provider = k;
+        var p = (S.setup.providers || {})[k] || {};
+        if (k !== 'other' && p.smtp_port) S.setupForm.smtp_port = p.smtp_port;
+        render();
+      };
+    });
+    document.querySelectorAll('[data-smode]').forEach(function (el) {
+      el.onclick = function () { S.setupForm.mode = el.dataset.smode; render(); };
+    });
+    document.querySelectorAll('[data-smail]').forEach(function (el) {
+      el.onclick = function () {
+        S.setupBusy = 'mail'; render();
+        api('save_mail', {
+          provider: S.setupForm.provider, address: S.setupForm.address,
+          password: S.setupForm.password, from_name: S.setupForm.from_name,
+          smtp_host: S.setupForm.smtp_host, smtp_port: S.setupForm.smtp_port,
+          imap_host: S.setupForm.imap_host
+        }).then(function (r) {
+          S.setupBusy = '';
+          if (r.error) { S.setupNote = { panel: 'mail', ok: false, text: r.error }; render(); return; }
+          S.setup.mail = r.mail;
+          S.setupForm.password = '';
+          S.boot.email_ready = r.mail.ready;
+          S.setupNote = { panel: 'mail', ok: true, text: 'Saved. Now send a test to check it works.' };
+          render();
+        });
+      };
+    });
+    document.querySelectorAll('[data-stest]').forEach(function (el) {
+      el.onclick = function () {
+        S.setupBusy = 'test'; render();
+        api('test_mail', {}).then(function (r) {
+          S.setupBusy = '';
+          if (r.error) { S.setupNote = { panel: 'mail', ok: false, text: r.error }; render(); return; }
+          S.setupNote = { panel: 'mail', ok: true, text: 'Test sent to ' + r.to + '. Check your inbox.' };
+          S.setup.mail.tested_at = Math.floor(Date.now() / 1000);
+          render();
+        });
+      };
+    });
+    document.querySelectorAll('[data-scalls]').forEach(function (el) {
+      el.onclick = function () {
+        S.setupBusy = 'calls'; render();
+        api('save_calls', {
+          mode: S.setupForm.mode, twilio_sid: S.setupForm.twilio_sid,
+          twilio_token: S.setupForm.twilio_token, twilio_from: S.setupForm.twilio_from,
+          twilio_my_phone: S.setupForm.twilio_my_phone
+        }).then(function (r) {
+          S.setupBusy = '';
+          if (r.error) { S.setupNote = { panel: 'calls', ok: false, text: r.error }; render(); return; }
+          S.setup.calls = r.calls;
+          S.boot.calls = r.calls.mode;
+          S.setupForm.twilio_token = '';
+          S.setupNote = { panel: 'calls', ok: true, text: 'Saved.' };
+          render();
+        });
+      };
+    });
+    document.querySelectorAll('[data-sctest]').forEach(function (el) {
+      el.onclick = function () {
+        S.setupBusy = 'ctest'; render();
+        api('test_calls', {}).then(function (r) {
+          S.setupBusy = '';
+          S.setupNote = { panel: 'calls', ok: !r.error, text: r.error || r.message };
+          render();
+        });
+      };
+    });
+    document.querySelectorAll('[data-sbiz]').forEach(function (el) {
+      el.onclick = function () {
+        S.setupBusy = 'biz'; render();
+        api('save_business', {
+          business_name: S.setupForm.business_name, sender: S.setupForm.sender,
+          timezone: S.setupForm.timezone
+        }).then(function (r) {
+          S.setupBusy = '';
+          if (r.error) { toast(r.error); render(); return; }
+          toast('Saved');
+          render();
+          // The name shows in the header, which is drawn from page data.
+          setTimeout(function () { location.reload(); }, 600);
+        });
+      };
+    });
+    document.querySelectorAll('[data-gosetup]').forEach(function (el) {
+      el.onclick = function () { S.sheet = null; go({ view: 'setup' }); };
+    });
+    var imp = document.getElementById('st-import');
+    if (imp) imp.onchange = function () {
+      var file = imp.files && imp.files[0];
+      if (!file) return;
+      if (!confirm('Replace the leads and history in this CRM with the backup? ' +
+                   'Your current data is saved first.')) { imp.value = ''; return; }
+      S.setupBusy = 'import'; render();
+      var fd = new FormData();
+      fd.append('file', file);
+      toast('Importing…');
+      fetch(BASE + 'api.php?a=import', {
+        method: 'POST', headers: { 'X-CSRF': CSRF }, body: fd
+      }).then(function (r) { return r.json(); }).then(function (r) {
+        S.setupBusy = '';
+        S.setupNote = { panel: 'data', ok: !r.error, text: r.error || r.message };
+        imp.value = '';
+        render();
+        if (r.error) return;
+        setTimeout(function () { location.reload(); }, 1200);
+      }).catch(function (e) {
+        S.setupBusy = '';
+        imp.value = '';
+        toast('Import failed: ' + e.message);
+        render();
+      });
+    };
   }
 
   function disposition(o) {
@@ -2236,14 +2584,14 @@
     if (!S.sheet.dt) return toast('Pick a time');
     // A demo that will email an invite gets a confirmation step first, showing
     // exactly who the Google Meet invite goes to.
-    if (S.sheet.kind === 'demo' && (S.sheet.email || '').trim() && !S.sheet.confirming) {
+    if (S.sheet.kind === 'demo' && S.boot.calendar_connected && (S.sheet.email || '').trim() && !S.sheet.confirming) {
       S.sheet.confirming = true; render(); return;
     }
     commitSchedule();
   }
   function commitSchedule(notify) {
     var l = S.sheet.lead, k = S.sheet.kind, edit = S.sheet.editId;
-    var email = k === 'demo' ? (S.sheet.email || '').trim() : '';
+    var email = k === 'demo' && S.boot.calendar_connected ? (S.sheet.email || '').trim() : '';
     var payload = edit
       ? { event_id: edit, when: schedWhenStr(), notes: S.sheet.note || '',
           invite_email: email, notify: notify !== false }
@@ -2296,52 +2644,6 @@
         email: ev.invite_email || ev.email || '', note: ev.notes || '', meet_link: ev.meet_link || ''
       };
       render();
-    });
-
-    document.querySelectorAll('[data-osnew]').forEach(function (el) {
-      el.onclick = function () {
-        S.sheet = { kind: 'osearch', s: { name: '', keywords: '', places: '', industry: 'other',
-          depth: 2, min_reviews: 0, max_reviews: 0, require_phone: 1, emails: 0,
-          no_site_only: 0, daily: 0 } };
-        render();
-      };
-    });
-    document.querySelectorAll('[data-oedit]').forEach(function (el) {
-      el.onclick = function () {
-        var s = (S.outreach.searches || []).filter(function (x) { return x.id === el.dataset.oedit; })[0];
-        if (s) { S.sheet = { kind: 'osearch', s: s }; render(); }
-      };
-    });
-    document.querySelectorAll('[data-osave]').forEach(function (el) {
-      el.onclick = saveSearch;
-    });
-    document.querySelectorAll('[data-orun]').forEach(function (el) {
-      el.onclick = function () {
-        api('run_search', { id: el.dataset.orun }).then(function (r) {
-          if (r.error) return toast(r.error);
-          toast('Search started');
-          loadOutreach().then(render);
-        });
-      };
-    });
-    document.querySelectorAll('[data-odel]').forEach(function (el) {
-      el.onclick = function () {
-        if (!confirm('Delete this search? Leads it already found stay in your CRM.')) return;
-        api('delete_search', { id: el.dataset.odel }).then(function (r) {
-          if (r.error) return toast(r.error);
-          toast('Search deleted');
-          loadOutreach().then(render);
-        });
-      };
-    });
-    document.querySelectorAll('[data-ocancel]').forEach(function (el) {
-      el.onclick = function () {
-        api('cancel_run', { id: el.dataset.ocancel }).then(function (r) {
-          if (r.error) return toast(r.error);
-          toast('Stopped');
-          loadOutreach().then(render);
-        });
-      };
     });
   }
   function saveSearch() {
@@ -2413,6 +2715,26 @@
     });
   }
 
+  /* Setup reads the whole config in one call. S.setupForm is a working copy the
+     inputs edit, so a re-render from a provider or mode change never throws away
+     what has been typed. */
+  function loadSetup() {
+    return api('setup').then(function (r) {
+      S.setup = r;
+      var m = r.mail || {}, c = r.calls || {};
+      S.setupForm = {
+        business_name: r.business_name || '', sender: r.sender || '', timezone: r.timezone || '',
+        provider: m.provider || '', address: m.address || '', from_name: m.from_name || '',
+        password: '', smtp_host: m.smtp_host || '', smtp_port: m.smtp_port || 465,
+        imap_host: m.imap_host || '',
+        mode: c.mode || 'phone', twilio_sid: c.twilio_sid || '', twilio_token: '',
+        twilio_from: c.twilio_from || '', twilio_my_phone: c.twilio_my_phone || ''
+      };
+      S.setupBusy = '';
+      S.setupNote = null;
+    });
+  }
+
   /* Single entry point for changing view: sets state, paints immediately so the
      UI never hangs, then loads that view's data. */
   function go(target, opts) {
@@ -2433,6 +2755,7 @@
     if (target.view === 'clients') return api('clients').then(function (r) { S.clients = r.clients; render(); });
     if (target.view === 'leads')   return loadLeads().then(render);
     if (target.view === 'outreach') return loadOutreach().then(render);
+    if (target.view === 'setup')    return loadSetup().then(render);
     if (target.view === 'cal')     return api('calendar').then(function (r) { S.cal = r.events; render(); });
     if (target.view === 'detail')  return api('lead', null, { id: target.id })
                                      .then(function (l) { S.detail = l; render(); });
@@ -2449,6 +2772,24 @@
   window.addEventListener('hashchange', function () {
     var r = readHash();
     if (r && r.view !== S.view) go(r);
+  });
+
+  /* tel: links carry target=_blank, which would leave an empty tab behind. They
+     also have to go through the server for Twilio, so one delegated handler
+     covers both cases. */
+  document.addEventListener('click', function (e) {
+    var a = e.target && e.target.closest ? e.target.closest('a[href^="tel:"]') : null;
+    if (!a) return;
+    e.preventDefault();
+    var href = a.getAttribute('href');
+    if (S.boot && S.boot.calls === 'twilio') {
+      toast('Calling…');
+      api('dial', { phone: href.replace(/^tel:/, '') }).then(function (r) {
+        toast(r.error || r.message);
+      });
+      return;
+    }
+    location.href = href;
   });
 
   var start = readHash() || { view: 'dash' };
